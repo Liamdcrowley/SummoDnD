@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sources:sync": "tsx src/scripts/sync-sources.ts",
-    "catalog:export": "tsx src/scripts/export-static-summonables.ts"
+    "catalog:export": "tsx src/scripts/export-static-summonables.ts",
+    "summons:markdown": "tsx src/scripts/export-summon-markdown.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
