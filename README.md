@@ -1,4 +1,4 @@
-# Druid Summon Board
+# SummoDnD
 
 Static Next.js app for browsing the allowed druid summon pool and tracking active summons on a personal board.
 
