@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useState, useSyncExternalStore } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 
 import {
   createBoardEntry,
@@ -455,11 +455,15 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
   const [sourcebookFilter, setSourcebookFilter] = useState("all");
   const [modalState, setModalState] = useState<StatBlockModalState>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const boardEntries = useSyncExternalStore(
-    subscribeBoardEntries,
-    () => loadBoardEntries(initialSummonables),
-    () => [],
-  );
+  const [boardEntries, setBoardEntries] = useState(() => loadBoardEntries(initialSummonables));
+
+  useEffect(() => {
+    const unsubscribe = subscribeBoardEntries(() => {
+      setBoardEntries(loadBoardEntries(initialSummonables));
+    });
+
+    return unsubscribe;
+  }, [initialSummonables]);
 
   useEffect(() => {
     if (!feedback) {
