@@ -1,0 +1,11 @@
+Source: Wayfinder's Guide to Eberron
+
+Prerequisite: Elf
+
+You are descended from a master of the double blade and their skills have passed on to you. You gain the following benefits:
+
+Increase your Dexterity or Strength score by 1, to a maximum of 20.
+
+While wielding a double-bladed weapon with two hands, the weapon has the finesse trait for your attacks with it, and you gain +1 AC.
+
+On your turn, when you use a bonus action to make a melee attack with the blade at the opposite end of the weapon, the weapon's damage die for this attack increases to 2d4, instead of 1d4.

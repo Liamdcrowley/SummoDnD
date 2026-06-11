@@ -1,0 +1,11 @@
+Source: Exploring Ebberon
+
+Prerequisite: Elf (Aereni)
+
+You've undergone rituals to bind you to Irian and the Undying Court. Many who undergo this process have a desiccated appearance, similar to a mummy; it's up to you whether you are affected this way. Regardless of your appearance, you gain the following benefits:
+
+Increase your intelligence or Wisdom score by 1, to a maximum of 20.
+
+You gain resistance to necrotic and radiant damage, and you have advantage on death saving throws.
+
+If you cast a spell that inflicts necrotic damage, you can choose to have it deal radiant damage instead.

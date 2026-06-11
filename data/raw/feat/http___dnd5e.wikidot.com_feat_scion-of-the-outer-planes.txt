@@ -1,0 +1,19 @@
+Source: Planescape - Adventures in the Multiverse
+
+Prerequisite: Planescape Campaign.
+
+Your connection to an Outer Plane infuses you with the energy there. Choose a type of plane listed in the Planar Infusion Table. Your choice gives you a resistance to a damage type and the ability to cast a cantrip, as specified in the table. You can cast this cantrip without material components, and your spellcasting ability for it is Intelligence, Wisdom or Charisma (choose when you select this feat).
+
+Planar Infusion
+
+Plane | Resistance | Cantrip
+
+Chaotic Outer Plane | Poison | Minor Illusion
+
+Evil Outer Plane | Necrotic | Chill Touch
+
+Good Outer Plane | Radiant | Sacred Flame
+
+Lawful Outer Plane | Force | Guidance
+
+The Outlands | Psychic | Mage Hand

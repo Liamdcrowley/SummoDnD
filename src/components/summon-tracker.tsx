@@ -1,0 +1,837 @@
+"use client";
+
+import { useDeferredValue, useEffect, useState, useSyncExternalStore } from "react";
+
+import {
+  createBoardEntry,
+  loadBoardEntries,
+  removeBoardEntry,
+  replaceBoardEntries,
+  subscribeBoardEntries,
+  updateBoardEntry,
+} from "@/lib/board-state";
+import type { BoardEntry, CatalogEntry, StatBlock, StatBlockSection, SummonableData } from "@/lib/types";
+
+type SummonTrackerProps = {
+  initialSummonables: CatalogEntry<SummonableData>[];
+};
+
+type TabKey = "library" | "board";
+
+type StatBlockModalState =
+  | {
+      title: string;
+      subtitle: string;
+      statBlock: StatBlock;
+      sourceTags: string[];
+    }
+  | null;
+
+type BoardGroup = {
+  key: string;
+  name: string;
+  count: number;
+  entries: BoardEntry[];
+};
+
+function formatStatList(values: string[]) {
+  return values.length > 0 ? values.join(", ") : "None";
+}
+
+function formatSpeed(speed: Record<string, string>) {
+  return Object.entries(speed)
+    .map(([mode, value]) => `${mode}: ${value}`)
+    .join(", ");
+}
+
+function formatCr(label: string) {
+  return label === "--" ? "Variable" : `CR ${label}`;
+}
+
+function parseCrValue(label: string) {
+  if (label === "--") {
+    return null;
+  }
+
+  if (label.includes("/")) {
+    const [numerator, denominator] = label.split("/").map(Number);
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+      return null;
+    }
+
+    return numerator / denominator;
+  }
+
+  const value = Number(label);
+  return Number.isFinite(value) ? value : null;
+}
+
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
+      <p className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+        {label}
+      </p>
+      <p className="mt-2 text-sm leading-6 text-[var(--ink)]">{value}</p>
+    </div>
+  );
+}
+
+function FilterField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+}) {
+  return (
+    <label className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
+      <span className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+        {label}
+      </span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="mt-2 block w-full bg-transparent text-sm text-[var(--ink)] outline-none"
+      >
+        {options.map((option) => (
+          <option key={`${label}-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function SectionBlock({
+  title,
+  sections,
+}: {
+  title: string;
+  sections: StatBlockSection[];
+}) {
+  if (sections.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
+      <h4 className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+        {title}
+      </h4>
+      <div className="mt-4 space-y-4">
+        {sections.map((section) => (
+          <div key={`${title}-${section.name}`} className="space-y-2">
+            <p className="font-semibold text-[var(--ink)]">{section.name}</p>
+            <div className="space-y-2 text-sm leading-7 text-[var(--ink)]">
+              {section.entries.map((entry, index) => (
+                <p key={`${section.name}-${index}`}>{entry}</p>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AbilityGrid({ statBlock }: { statBlock: StatBlock }) {
+  return (
+    <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
+      {Object.entries(statBlock.abilities).map(([ability, score]) => {
+        const modifier = Math.floor((score - 10) / 2);
+        return (
+          <div
+            key={ability}
+            className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-3 py-4 text-center"
+          >
+            <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+              {ability}
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-[var(--ink)]">{score}</p>
+            <p className="text-sm text-[var(--muted)]">
+              {modifier >= 0 ? "+" : ""}
+              {modifier}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StatBlockSheet({
+  title,
+  subtitle,
+  statBlock,
+  sourceTags,
+  onClose,
+}: {
+  title: string;
+  subtitle: string;
+  statBlock: StatBlock;
+  sourceTags: string[];
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 bg-[rgba(25,18,12,0.56)] px-3 py-4 backdrop-blur-sm sm:px-6">
+      <div className="mx-auto flex h-full w-full max-w-3xl flex-col overflow-hidden rounded-[2rem] border border-[var(--line)] bg-[var(--card)] shadow-[0_30px_100px_rgba(36,23,13,0.28)]">
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--line)] px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-[var(--muted)]">
+              {subtitle}
+            </p>
+            <h3 className="mt-2 font-display text-3xl text-[var(--ink)]">{title}</h3>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {sourceTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-1 text-xs text-[var(--ink)]"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-4 py-2 text-sm font-semibold text-[var(--ink)]"
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <DetailRow label="Size" value={statBlock.size} />
+              <DetailRow label="Type" value={statBlock.type} />
+              <DetailRow label="Alignment" value={statBlock.alignment} />
+              <DetailRow label="Armor Class" value={statBlock.armorClass} />
+              <DetailRow label="Hit Points" value={statBlock.hitPoints} />
+              <DetailRow label="Speed" value={formatSpeed(statBlock.speed)} />
+              <DetailRow label="Saving Throws" value={formatStatList(statBlock.savingThrows)} />
+              <DetailRow label="Skills" value={formatStatList(statBlock.skills)} />
+              <DetailRow label="Challenge" value={formatCr(statBlock.challengeRating)} />
+              <DetailRow label="Senses" value={formatStatList(statBlock.senses)} />
+              <DetailRow label="Languages" value={formatStatList(statBlock.languages)} />
+              <DetailRow
+                label="Damage Resistances"
+                value={formatStatList(statBlock.damageResistances)}
+              />
+              <DetailRow
+                label="Damage Immunities"
+                value={formatStatList(statBlock.damageImmunities)}
+              />
+              <DetailRow
+                label="Damage Vulnerabilities"
+                value={formatStatList(statBlock.damageVulnerabilities)}
+              />
+              <DetailRow
+                label="Condition Immunities"
+                value={formatStatList(statBlock.conditionImmunities)}
+              />
+            </div>
+
+            <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+                Ability Scores
+              </h4>
+              <div className="mt-4">
+                <AbilityGrid statBlock={statBlock} />
+              </div>
+            </section>
+
+            {statBlock.notes && statBlock.notes.length > 0 ? (
+              <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+                  Notes
+                </h4>
+                <div className="mt-3 space-y-2 text-sm leading-7 text-[var(--ink)]">
+                  {statBlock.notes.map((entry) => (
+                    <p key={entry}>{entry}</p>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <SectionBlock title="Spellcasting" sections={statBlock.spellcasting} />
+            <SectionBlock title="Traits" sections={statBlock.traits} />
+            <SectionBlock title="Actions" sections={statBlock.actions} />
+            <SectionBlock title="Bonus Actions" sections={statBlock.bonusActions} />
+            <SectionBlock title="Reactions" sections={statBlock.reactions} />
+
+            <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+                Source
+              </h4>
+              <p className="mt-3 text-sm leading-7 text-[var(--ink)]">
+                {statBlock.sourceAttribution.sourcebook}
+              </p>
+              <a
+                href={statBlock.sourceAttribution.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-block text-sm font-semibold text-[var(--moss-dark)] underline-offset-4 hover:underline"
+              >
+                Open source
+              </a>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BoardGroupCard({
+  group,
+  onOpenStats,
+  onAdjustHp,
+  onCommitHp,
+  onCommitNickname,
+  onRemove,
+}: {
+  group: BoardGroup;
+  onOpenStats: (entry: BoardEntry) => void;
+  onAdjustHp: (entry: BoardEntry, delta: number) => void;
+  onCommitHp: (entry: BoardEntry, nextValue: number) => void;
+  onCommitNickname: (entry: BoardEntry, nextValue: string) => void;
+  onRemove: (entry: BoardEntry) => void;
+}) {
+  const leadEntry = group.entries[0];
+
+  return (
+    <article className="rounded-[1.75rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_20px_50px_rgba(62,44,26,0.1)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+            {leadEntry?.statBlockSnapshot.sourceAttribution.sourcebook}
+          </p>
+          <h3 className="mt-2 font-display text-2xl text-[var(--ink)]">{group.name}</h3>
+          <p className="mt-2 text-sm text-[var(--muted)]">{group.count} on board</p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {(leadEntry?.summonable?.data.summonSources ?? []).map((sourceKey) => (
+          <span
+            key={`${group.key}-${sourceKey}`}
+            className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-1 text-xs text-[var(--ink)]"
+          >
+            {sourceKey}
+          </span>
+        ))}
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {group.entries.map((entry, index) => (
+          <GroupedBoardEntryRow
+            key={`${entry.id}-${entry.updatedAt}`}
+            entry={entry}
+            index={index}
+            onOpenStats={onOpenStats}
+            onAdjustHp={onAdjustHp}
+            onCommitHp={onCommitHp}
+            onCommitNickname={onCommitNickname}
+            onRemove={onRemove}
+          />
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function GroupedBoardEntryRow({
+  entry,
+  index,
+  onOpenStats,
+  onAdjustHp,
+  onCommitHp,
+  onCommitNickname,
+  onRemove,
+}: {
+  entry: BoardEntry;
+  index: number;
+  onOpenStats: (entry: BoardEntry) => void;
+  onAdjustHp: (entry: BoardEntry, delta: number) => void;
+  onCommitHp: (entry: BoardEntry, nextValue: number) => void;
+  onCommitNickname: (entry: BoardEntry, nextValue: string) => void;
+  onRemove: (entry: BoardEntry) => void;
+}) {
+  const [nickname, setNickname] = useState(entry.nickname);
+  const [hitPoints, setHitPoints] = useState(String(entry.currentHitPoints));
+
+  return (
+    <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+            Copy {index + 1}
+          </p>
+          <label className="mt-2 block">
+            <span className="sr-only">Nickname</span>
+            <input
+              value={nickname}
+              onChange={(event) => setNickname(event.target.value)}
+              onBlur={() => onCommitNickname(entry, nickname)}
+              className="block w-full bg-transparent text-base font-semibold text-[var(--ink)] outline-none"
+            />
+          </label>
+        </div>
+        <button
+          type="button"
+          onClick={() => onRemove(entry)}
+          className="rounded-full border border-[rgba(156,61,53,0.2)] bg-[rgba(156,61,53,0.08)] px-3 py-2 text-sm font-semibold text-[var(--danger)]"
+        >
+          Remove
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
+        <div className="rounded-2xl border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-4 py-3">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+            HP
+          </p>
+          <div className="mt-2 flex items-end gap-2">
+            <input
+              inputMode="numeric"
+              value={hitPoints}
+              onChange={(event) => setHitPoints(event.target.value)}
+              onBlur={() => {
+                const nextValue = Number(hitPoints);
+                onCommitHp(entry, Number.isFinite(nextValue) ? nextValue : entry.currentHitPoints);
+              }}
+              className="w-20 bg-transparent text-2xl font-semibold text-[var(--ink)] outline-none"
+            />
+            <span className="pb-1 text-sm text-[var(--muted)]">/ {entry.maxHitPoints}</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {[-5, -1, 1, 5].map((delta) => (
+            <button
+              key={`${entry.id}-${delta}`}
+              type="button"
+              onClick={() => onAdjustHp(entry, delta)}
+              className="rounded-full border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
+            >
+              {delta > 0 ? `+${delta}` : delta}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => onOpenStats(entry)}
+            className="rounded-full border border-[var(--moss)] bg-[var(--moss)] px-4 py-2 text-sm font-semibold text-[var(--paper)]"
+          >
+            View stats
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
+  const [activeTab, setActiveTab] = useState<TabKey>("library");
+  const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sizeFilter, setSizeFilter] = useState("all");
+  const [crFilter, setCrFilter] = useState("all");
+  const [sourcebookFilter, setSourcebookFilter] = useState("all");
+  const [modalState, setModalState] = useState<StatBlockModalState>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const boardEntries = useSyncExternalStore(
+    subscribeBoardEntries,
+    () => loadBoardEntries(initialSummonables),
+    () => [],
+  );
+
+  useEffect(() => {
+    if (!feedback) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setFeedback(null), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [feedback]);
+
+  const summonSourceOptions = Array.from(
+    new Set(initialSummonables.flatMap((entry) => entry.data.summonSources)),
+  ).sort();
+  const typeOptions = Array.from(new Set(initialSummonables.map((entry) => entry.data.statBlock.type))).sort();
+  const sizeOptions = Array.from(new Set(initialSummonables.map((entry) => entry.data.statBlock.size))).sort();
+  const crOptions = Array.from(
+    new Set(initialSummonables.map((entry) => entry.data.statBlock.challengeRating)),
+  ).sort((left, right) => {
+    const leftValue = parseCrValue(left) ?? Number.POSITIVE_INFINITY;
+    const rightValue = parseCrValue(right) ?? Number.POSITIVE_INFINITY;
+    return leftValue - rightValue;
+  });
+  const sourcebookOptions = Array.from(new Set(initialSummonables.map((entry) => entry.source.sourcebook))).sort();
+
+  const filteredSummonables = initialSummonables.filter((entry) => {
+    const normalizedQuery = deferredQuery.trim().toLowerCase();
+    if (
+      normalizedQuery &&
+      ![entry.name, entry.searchText, entry.source.sourcebook]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    ) {
+      return false;
+    }
+
+    if (sourceFilter !== "all" && !entry.data.summonSources.includes(sourceFilter as never)) {
+      return false;
+    }
+
+    if (typeFilter !== "all" && entry.data.statBlock.type !== typeFilter) {
+      return false;
+    }
+
+    if (sizeFilter !== "all" && entry.data.statBlock.size !== sizeFilter) {
+      return false;
+    }
+
+    if (sourcebookFilter !== "all" && entry.source.sourcebook !== sourcebookFilter) {
+      return false;
+    }
+
+    if (crFilter !== "all") {
+      const maximumCr = parseCrValue(crFilter);
+      const creatureCr =
+        entry.data.statBlock.challengeRatingValue ?? parseCrValue(entry.data.statBlock.challengeRating);
+
+      if (maximumCr === null || creatureCr === null || creatureCr > maximumCr) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const boardGroups = Array.from(
+    boardEntries.reduce((groups, entry) => {
+      const key = entry.summonableSlug || entry.statBlockSnapshot.name;
+      const existing = groups.get(key);
+      if (existing) {
+        existing.entries.push(entry);
+        existing.count += 1;
+        return groups;
+      }
+
+      groups.set(key, {
+        key,
+        name: entry.summonable?.name ?? entry.statBlockSnapshot.name,
+        count: 1,
+        entries: [entry],
+      });
+
+      return groups;
+    }, new Map<string, BoardGroup>()),
+  )
+    .map(([, group]) => group)
+    .sort((left, right) => left.name.localeCompare(right.name));
+
+  function handleAddSummonable(entry: CatalogEntry<SummonableData>) {
+    try {
+      const nextEntry = createBoardEntry(entry);
+      replaceBoardEntries([...boardEntries, nextEntry]);
+      setFeedback(`${entry.name} added to the board.`);
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : "Failed to add summon.");
+    }
+  }
+
+  function handleAdjustHp(entry: BoardEntry, delta: number) {
+    replaceBoardEntries(
+      updateBoardEntry(boardEntries, entry.id, {
+        currentHitPoints: entry.currentHitPoints + delta,
+      }),
+    );
+  }
+
+  function handleCommitHp(entry: BoardEntry, nextValue: number) {
+    replaceBoardEntries(
+      updateBoardEntry(boardEntries, entry.id, {
+        currentHitPoints: nextValue,
+      }),
+    );
+  }
+
+  function handleCommitNickname(entry: BoardEntry, nextValue: string) {
+    replaceBoardEntries(
+      updateBoardEntry(boardEntries, entry.id, {
+        nickname: nextValue,
+      }),
+    );
+  }
+
+  function handleRemove(entry: BoardEntry) {
+    replaceBoardEntries(removeBoardEntry(boardEntries, entry.id));
+    setFeedback(`${entry.nickname} removed from the board.`);
+  }
+
+  return (
+    <>
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-3 py-4 pb-24 sm:px-4 lg:px-6">
+        {feedback ? <p className="px-1 text-sm text-[var(--muted)]">{feedback}</p> : null}
+
+        <section className="rounded-[2rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_25px_80px_rgba(62,44,26,0.12)]">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+              Board Tracker
+            </p>
+            <p className="text-sm text-[var(--muted)]">{boardEntries.length} total on board</p>
+          </div>
+          {boardGroups.length === 0 ? (
+            <p className="mt-3 text-sm leading-7 text-[var(--muted)]">No creatures on the board yet.</p>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {boardGroups.map((group) => (
+                <span
+                  key={group.key}
+                  className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm text-[var(--ink)]"
+                >
+                  {group.name} x{group.count}
+                </span>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <div className="rounded-[2rem] border border-[var(--line)] bg-[var(--card)] p-3 shadow-[0_25px_80px_rgba(62,44,26,0.12)]">
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { key: "library" as const, label: `Library (${initialSummonables.length})` },
+              { key: "board" as const, label: `Board (${boardEntries.length})` },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={
+                  activeTab === tab.key
+                    ? "rounded-[1.4rem] bg-[var(--moss)] px-4 py-3 text-sm font-semibold text-[var(--paper)]"
+                    : "rounded-[1.4rem] border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm font-semibold text-[var(--ink)]"
+                }
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeTab === "library" ? (
+          <section className="space-y-4">
+            <div className="rounded-[2rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_25px_80px_rgba(62,44,26,0.12)]">
+              <label className="block rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
+                <span className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+                  Search
+                </span>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search by creature or sourcebook"
+                  className="mt-2 block w-full bg-transparent text-base text-[var(--ink)] outline-none"
+                />
+              </label>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <FilterField
+                  label="Summon source"
+                  value={sourceFilter}
+                  onChange={setSourceFilter}
+                  options={[
+                    { label: "All sources", value: "all" },
+                    ...summonSourceOptions.map((option) => ({ label: option, value: option })),
+                  ]}
+                />
+                <FilterField
+                  label="Creature type"
+                  value={typeFilter}
+                  onChange={setTypeFilter}
+                  options={[
+                    { label: "All types", value: "all" },
+                    ...typeOptions.map((option) => ({ label: option, value: option })),
+                  ]}
+                />
+                <FilterField
+                  label="Size"
+                  value={sizeFilter}
+                  onChange={setSizeFilter}
+                  options={[
+                    { label: "All sizes", value: "all" },
+                    ...sizeOptions.map((option) => ({ label: option, value: option })),
+                  ]}
+                />
+                <FilterField
+                  label="Max CR"
+                  value={crFilter}
+                  onChange={setCrFilter}
+                  options={[
+                    { label: "Any CR", value: "all" },
+                    ...crOptions.map((option) => ({ label: option, value: option })),
+                  ]}
+                />
+                <FilterField
+                  label="Sourcebook"
+                  value={sourcebookFilter}
+                  onChange={setSourcebookFilter}
+                  options={[
+                    { label: "All books", value: "all" },
+                    ...sourcebookOptions.map((option) => ({ label: option, value: option })),
+                  ]}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4">
+              {filteredSummonables.length === 0 ? (
+                <div className="rounded-[2rem] border border-dashed border-[var(--line)] bg-[var(--card)] px-5 py-12 text-center text-sm leading-7 text-[var(--muted)]">
+                  No summons match the current filters.
+                </div>
+              ) : (
+                filteredSummonables.map((entry) => (
+                  <article
+                    key={entry.slug}
+                    className="rounded-[2rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_25px_80px_rgba(62,44,26,0.12)]"
+                  >
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+                          {entry.source.sourcebook}
+                        </p>
+                        <h2 className="mt-2 font-display text-3xl text-[var(--ink)]">{entry.name}</h2>
+                        <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
+                          {entry.data.statBlock.size} {entry.data.statBlock.type} /{" "}
+                          {formatCr(entry.data.statBlock.challengeRating)} / {entry.data.statBlock.alignment}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setModalState({
+                              title: entry.name,
+                              subtitle: `${entry.data.statBlock.type} • ${formatCr(entry.data.statBlock.challengeRating)}`,
+                              statBlock: entry.data.statBlock,
+                              sourceTags: entry.data.summonSources,
+                            })
+                          }
+                          className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-4 py-2 text-sm font-semibold text-[var(--ink)]"
+                        >
+                          View stats
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleAddSummonable(entry)}
+                          className="rounded-full border border-[var(--moss)] bg-[var(--moss)] px-4 py-2 text-sm font-semibold text-[var(--paper)]"
+                        >
+                          Add to board
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {entry.data.summonSources.map((sourceKey) => (
+                        <span
+                          key={`${entry.slug}-${sourceKey}`}
+                          className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-1 text-xs text-[var(--ink)]"
+                        >
+                          {sourceKey}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <DetailRow label="Armor Class" value={entry.data.statBlock.armorClass} />
+                      <DetailRow label="Hit Points" value={entry.data.statBlock.hitPoints} />
+                      <DetailRow label="Speed" value={formatSpeed(entry.data.statBlock.speed)} />
+                      <DetailRow label="Senses" value={formatStatList(entry.data.statBlock.senses)} />
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+        ) : (
+          <section className="space-y-4">
+            {boardEntries.length === 0 ? (
+              <div className="rounded-[2rem] border border-dashed border-[var(--line)] bg-[var(--card)] px-5 py-12 text-center text-sm leading-7 text-[var(--muted)]">
+                Your board is empty. Add creatures from the Library tab to start tracking summons.
+              </div>
+            ) : (
+              boardGroups.map((group) => (
+                <BoardGroupCard
+                  key={group.key}
+                  group={group}
+                  onOpenStats={(boardEntry) =>
+                    setModalState({
+                      title: boardEntry.nickname,
+                      subtitle: boardEntry.statBlockSnapshot.name,
+                      statBlock: boardEntry.statBlockSnapshot,
+                      sourceTags: boardEntry.summonable?.data.summonSources ?? [],
+                    })
+                  }
+                  onAdjustHp={handleAdjustHp}
+                  onCommitHp={handleCommitHp}
+                  onCommitNickname={handleCommitNickname}
+                  onRemove={handleRemove}
+                />
+              ))
+            )}
+          </section>
+        )}
+      </main>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--line)] bg-[rgba(255,249,239,0.96)] px-3 py-3 backdrop-blur-sm sm:hidden">
+        <div className="mx-auto flex max-w-6xl items-center gap-2">
+          {[
+            { key: "library" as const, label: "Library", count: initialSummonables.length },
+            { key: "board" as const, label: "Board", count: boardEntries.length },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setActiveTab(tab.key)}
+              className={
+                activeTab === tab.key
+                  ? "flex-1 rounded-full bg-[var(--moss)] px-4 py-3 text-sm font-semibold text-[var(--paper)]"
+                  : "flex-1 rounded-full border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-sm font-semibold text-[var(--ink)]"
+              }
+            >
+              {tab.label} / {tab.count}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {modalState ? (
+        <StatBlockSheet
+          title={modalState.title}
+          subtitle={modalState.subtitle}
+          statBlock={modalState.statBlock}
+          sourceTags={modalState.sourceTags}
+          onClose={() => setModalState(null)}
+        />
+      ) : null}
+    </>
+  );
+}

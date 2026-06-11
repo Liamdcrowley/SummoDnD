@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4ecdd;
+  --paper: #fff9ef;
+  --card: rgba(255, 250, 242, 0.82);
+  --foreground: #24170d;
+  --ink: #2f2218;
+  --muted: #766659;
+  --line: rgba(81, 58, 38, 0.14);
+  --moss: #486647;
+  --moss-dark: #324d33;
+  --clay: #b96244;
+  --danger: #9c3d35;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(127, 160, 118, 0.2), transparent 28%),
+    radial-gradient(circle at 85% 15%, rgba(192, 125, 86, 0.18), transparent 22%),
+    linear-gradient(180deg, #f7f1e5 0%, #efe3d0 100%);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), sans-serif;
+  min-height: 100vh;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(74, 53, 34, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(74, 53, 34, 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(circle at center, black 55%, transparent 100%);
+}
+
+.font-display {
+  font-family: var(--font-display), serif;
+}
+
+::selection {
+  background: rgba(72, 102, 71, 0.22);
+  color: var(--ink);
+}
