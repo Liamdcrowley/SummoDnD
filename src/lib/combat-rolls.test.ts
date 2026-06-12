@@ -163,11 +163,43 @@ describe("combat rolls", () => {
 
     expect(result).toEqual({
       d20: 1,
+      critical: false,
       attackTotal: 5,
       damageTotal: 6,
       damageParts: [
         { total: 4, type: "piercing" },
         { total: 1, type: "fire" },
+        { total: 1 },
+      ],
+    });
+  });
+
+  it("doubles damage dice but not modifiers or flat damage on a natural 20", () => {
+    const rolls = [0.999, 0, 0, 0, 0, 0, 0];
+    const result = rollAttackAction(
+      {
+        id: "bite",
+        name: "Bite",
+        attackBonus: 4,
+        damageParts: [
+          { formula: "2d4 + 2", type: "piercing" },
+          { formula: "1d6", type: "fire" },
+          { flat: 1 },
+        ],
+        damageFormulas: ["2d4 + 2", "1d6"],
+        flatDamage: [1],
+      },
+      () => rolls.shift() ?? 0,
+    );
+
+    expect(result).toEqual({
+      d20: 20,
+      critical: true,
+      attackTotal: 24,
+      damageTotal: 9,
+      damageParts: [
+        { total: 6, type: "piercing" },
+        { total: 2, type: "fire" },
         { total: 1 },
       ],
     });

@@ -1,12 +1,15 @@
 import {
   clampBoardHitPoints,
   createBoardEntry,
+  hitDiceCount,
+  hydrateBoardEntries,
   loadBoardEntries,
+  mightySummonerHitPointBonus,
   removeBoardEntry,
   saveBoardEntries,
   updateBoardEntry,
 } from "@/lib/board-state";
-import type { CatalogEntry, SummonableData } from "@/lib/types";
+import type { BoardEntryRecord, CatalogEntry, SummonableData } from "@/lib/types";
 
 function buildSummonable(name: string, slug: string): CatalogEntry<SummonableData> {
   return {
@@ -75,11 +78,12 @@ describe("board-state", () => {
 
     expect(restored).toHaveLength(1);
     expect(restored[0]?.nickname).toBe("Wolf");
-    expect(restored[0]?.currentHitPoints).toBe(11);
+    expect(restored[0]?.currentHitPoints).toBe(15);
+    expect(restored[0]?.maxHitPoints).toBe(15);
     expect(restored[0]?.summonable?.slug).toBe("wolf");
   });
 
-  it("clamps hit point edits and keeps the current nickname when a blank value is submitted", () => {
+  it("allows bonus hit point edits above maximum and keeps the current nickname when blank is submitted", () => {
     const summonable = buildSummonable("Brown Bear", "brown-bear");
     const entry = createBoardEntry(summonable, "Bear A");
     const updated = updateBoardEntry([entry], entry.id, {
@@ -87,7 +91,7 @@ describe("board-state", () => {
       nickname: "   ",
     });
 
-    expect(updated[0]?.currentHitPoints).toBe(11);
+    expect(updated[0]?.currentHitPoints).toBe(999);
     expect(updated[0]?.nickname).toBe("Bear A");
   });
 
@@ -102,9 +106,53 @@ describe("board-state", () => {
     expect(next[0]?.nickname).toBe("Owl 2");
   });
 
-  it("clamps hit points into the legal range", () => {
-    expect(clampBoardHitPoints(15, 11)).toBe(11);
-    expect(clampBoardHitPoints(-2, 11)).toBe(0);
-    expect(clampBoardHitPoints(6, 11)).toBe(6);
+  it("clamps hit points to zero but allows temporary or bonus hit points above maximum", () => {
+    expect(clampBoardHitPoints(15)).toBe(15);
+    expect(clampBoardHitPoints(-2)).toBe(0);
+    expect(clampBoardHitPoints(6)).toBe(6);
+  });
+
+  it("counts hit dice for mighty summoner hit points", () => {
+    expect(hitDiceCount("2d8 + 2")).toBe(2);
+    expect(hitDiceCount("12d10 + 24")).toBe(12);
+    expect(mightySummonerHitPointBonus("2d8 + 2")).toBe(4);
+  });
+
+  it("upgrades legacy full-health board entries to the mighty summoner total", () => {
+    const summonable = buildSummonable("Wolf", "wolf");
+    const legacyRecord: BoardEntryRecord = {
+      id: "legacy",
+      summonableSlug: "wolf",
+      nickname: "Wolf",
+      currentHitPoints: 11,
+      maxHitPoints: 11,
+      statBlockSnapshot: structuredClone(summonable.data.statBlock),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const restored = hydrateBoardEntries([legacyRecord], [summonable]);
+
+    expect(restored[0]?.currentHitPoints).toBe(15);
+    expect(restored[0]?.maxHitPoints).toBe(15);
+  });
+
+  it("preserves current damage when upgrading legacy board entries", () => {
+    const summonable = buildSummonable("Wolf", "wolf");
+    const legacyRecord: BoardEntryRecord = {
+      id: "legacy-damaged",
+      summonableSlug: "wolf",
+      nickname: "Wolf",
+      currentHitPoints: 5,
+      maxHitPoints: 11,
+      statBlockSnapshot: structuredClone(summonable.data.statBlock),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const restored = hydrateBoardEntries([legacyRecord], [summonable]);
+
+    expect(restored[0]?.currentHitPoints).toBe(5);
+    expect(restored[0]?.maxHitPoints).toBe(15);
   });
 });

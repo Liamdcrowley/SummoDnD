@@ -1,6 +1,7 @@
-import type { BoardEntry, BoardEntryRecord, CatalogEntry, SummonableData } from "@/lib/types";
+import type { BoardEntry, BoardEntryRecord, CatalogEntry, StatBlock, SummonableData } from "@/lib/types";
 
 const BOARD_STORAGE_KEY = "druid-summon-board-v1";
+const MIGHTY_SUMMONER_HIT_POINTS_PER_HIT_DIE = 2;
 const boardListeners = new Set<() => void>();
 
 function nowIso() {
@@ -41,8 +42,41 @@ function summonableMap(summonables: CatalogEntry<SummonableData>[]) {
   return new Map(summonables.map((entry) => [entry.slug, entry]));
 }
 
-export function clampBoardHitPoints(value: number, maxHitPoints: number) {
-  return Math.max(0, Math.min(maxHitPoints, Math.round(value)));
+export function hitDiceCount(hitDice?: string) {
+  if (!hitDice) {
+    return 0;
+  }
+
+  const match = /^\s*(\d+)\s*d\s*\d+/i.exec(hitDice);
+  return match ? Number(match[1]) : 0;
+}
+
+export function mightySummonerHitPointBonus(hitDice?: string) {
+  return hitDiceCount(hitDice) * MIGHTY_SUMMONER_HIT_POINTS_PER_HIT_DIE;
+}
+
+export function mightySummonerMaxHitPoints(
+  statBlock: Pick<StatBlock, "hitDice" | "maxHitPoints">,
+) {
+  return statBlock.maxHitPoints + mightySummonerHitPointBonus(statBlock.hitDice);
+}
+
+function applyMightySummonerToRecord(record: BoardEntryRecord) {
+  const maxHitPoints = mightySummonerMaxHitPoints(record.statBlockSnapshot);
+  if (maxHitPoints <= record.maxHitPoints) {
+    return cloneBoardRecord(record);
+  }
+
+  return cloneBoardRecord({
+    ...record,
+    currentHitPoints:
+      record.currentHitPoints === record.maxHitPoints ? maxHitPoints : record.currentHitPoints,
+    maxHitPoints,
+  });
+}
+
+export function clampBoardHitPoints(value: number) {
+  return Math.max(0, Math.round(value));
 }
 
 export function hydrateBoardEntries(
@@ -51,10 +85,14 @@ export function hydrateBoardEntries(
 ) {
   const bySlug = summonableMap(summonables);
 
-  return records.map((record) => ({
-    ...cloneBoardRecord(record),
-    summonable: bySlug.get(record.summonableSlug) ?? null,
-  })) satisfies BoardEntry[];
+  return records.map((record) => {
+    const boostedRecord = applyMightySummonerToRecord(record);
+
+    return {
+      ...boostedRecord,
+      summonable: bySlug.get(record.summonableSlug) ?? null,
+    };
+  }) satisfies BoardEntry[];
 }
 
 export function loadBoardEntries(summonables: CatalogEntry<SummonableData>[]) {
@@ -134,13 +172,14 @@ export function createBoardEntry(
 
   const timestamp = nowIso();
   const statBlock = structuredClone(summonable.data.statBlock);
+  const maxHitPoints = mightySummonerMaxHitPoints(statBlock);
 
   return {
     id: createBrowserId("board"),
     summonableSlug: summonable.slug,
     nickname: nickname?.trim() || summonable.name,
-    currentHitPoints: statBlock.maxHitPoints,
-    maxHitPoints: statBlock.maxHitPoints,
+    currentHitPoints: maxHitPoints,
+    maxHitPoints,
     statBlockSnapshot: statBlock,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -169,7 +208,7 @@ export function updateBoardEntry(
         patch.nickname !== undefined ? patch.nickname.trim() || entry.nickname : entry.nickname,
       currentHitPoints:
         patch.currentHitPoints !== undefined
-          ? clampBoardHitPoints(patch.currentHitPoints, entry.maxHitPoints)
+          ? clampBoardHitPoints(patch.currentHitPoints)
           : entry.currentHitPoints,
       updatedAt,
     };

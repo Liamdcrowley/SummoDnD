@@ -108,15 +108,27 @@ function compactArmorClassSize(value: string) {
 }
 
 function formatDamageRoll(result: AttackRollResult) {
+  const damageLabel = result.critical ? "Crit damage" : "Damage";
+
   if (result.damageParts.length <= 1) {
-    return `Damage ${result.damageTotal}`;
+    return `${damageLabel} ${result.damageTotal}`;
   }
 
   const parts = result.damageParts
     .map((part) => `${part.total}${part.type ? ` ${part.type}` : ""}`)
     .join(" + ");
 
-  return `Damage ${parts} (${result.damageTotal})`;
+  return `${damageLabel} ${parts} (${result.damageTotal})`;
+}
+
+function attackButtonClassName(result?: AttackRollResult) {
+  const baseClassName = "rounded-full px-3 py-2 text-sm font-semibold";
+
+  if (result?.critical) {
+    return `${baseClassName} border border-[var(--danger)] bg-[var(--danger)] text-[var(--paper)] shadow-[0_0_0_3px_rgba(156,61,53,0.18)]`;
+  }
+
+  return `${baseClassName} border border-[var(--line)] bg-[rgba(255,255,255,0.45)] text-[var(--ink)]`;
 }
 
 function FilterField({
@@ -458,12 +470,13 @@ function BoardEntryCard({
               key={attack.id}
               type="button"
               onClick={() => handleRollAttack(attack)}
-              className="rounded-full border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
+              className={attackButtonClassName(result)}
             >
               {attack.name}
               {result ? (
-                <span className="ml-2 text-[var(--muted)]">
-                  Hit {result.attackTotal} / {formatDamageRoll(result)}
+                <span className={result.critical ? "ml-2 text-[var(--paper)]" : "ml-2 text-[var(--muted)]"}>
+                  {result.critical ? "Nat 20! " : ""}Hit {result.attackTotal} /{" "}
+                  {formatDamageRoll(result)}
                 </span>
               ) : null}
             </button>

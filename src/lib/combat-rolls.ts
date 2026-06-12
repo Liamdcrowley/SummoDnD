@@ -17,6 +17,7 @@ export type AttackDamagePart = {
 
 export type AttackRollResult = {
   d20: number;
+  critical: boolean;
   attackTotal: number;
   damageTotal: number;
   damageParts: Array<{
@@ -230,16 +231,21 @@ function rollDie(sides: number, random: () => number) {
   return Math.floor(random() * sides) + 1;
 }
 
-function rollDiceFormula(formula: string, random: () => number): RollDetail {
+function rollDiceFormula(
+  formula: string,
+  random: () => number,
+  options: { critical?: boolean } = {},
+): RollDetail {
   const match = /^(\d+)d(\d+)(?:\s*([+-])\s*(\d+))?$/i.exec(formula.trim());
   if (!match) {
     return { total: 0 };
   }
 
   const count = Number(match[1]);
+  const diceCount = options.critical ? count * 2 : count;
   const sides = Number(match[2]);
   const modifier = match[3] ? Number(match[4]) * (match[3] === "-" ? -1 : 1) : 0;
-  const diceTotal = Array.from({ length: count }, () => rollDie(sides, random)).reduce(
+  const diceTotal = Array.from({ length: diceCount }, () => rollDie(sides, random)).reduce(
     (sum, value) => sum + value,
     0,
   );
@@ -254,6 +260,7 @@ export function rollAttackAction(
   random: () => number = Math.random,
 ) {
   const d20 = rollDie(20, random);
+  const critical = d20 === 20;
   const fallbackDamageParts: AttackDamagePart[] = [
     ...attack.damageFormulas.map((formula) => ({ formula }) satisfies AttackDamagePart),
     ...attack.flatDamage.map((flat) => ({ flat }) satisfies AttackDamagePart),
@@ -263,13 +270,16 @@ export function rollAttackAction(
       ? attack.damageParts
       : fallbackDamageParts;
   const damageRolls = damageParts.map((part) => ({
-    total: part.formula ? rollDiceFormula(part.formula, random).total : (part.flat ?? 0),
+    total: part.formula
+      ? rollDiceFormula(part.formula, random, { critical }).total
+      : (part.flat ?? 0),
     ...(part.type ? { type: part.type } : {}),
   }));
   const damageTotal = damageRolls.reduce((sum, roll) => sum + roll.total, 0);
 
   return {
     d20,
+    critical,
     attackTotal: d20 + attack.attackBonus,
     damageTotal,
     damageParts: damageRolls,
