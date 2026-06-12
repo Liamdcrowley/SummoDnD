@@ -4,14 +4,31 @@ export type AttackAction = {
   id: string;
   name: string;
   attackBonus: number;
+  damageParts: AttackDamagePart[];
   damageFormulas: string[];
   flatDamage: number[];
+};
+
+export type AttackDamagePart = {
+  formula?: string;
+  flat?: number;
+  type?: string;
 };
 
 export type AttackRollResult = {
   d20: number;
   attackTotal: number;
   damageTotal: number;
+  damageParts: Array<{
+    total: number;
+    type?: string;
+  }>;
+};
+
+export type FollowUpAction = {
+  id: string;
+  name: string;
+  summary: string;
 };
 
 type RollDetail = {
@@ -20,10 +37,12 @@ type RollDetail = {
 
 const attackBonusPattern = /([+-])\s*(\d+)\s+to hit/i;
 const diceFormulaPattern = /\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)/gi;
+const damagePartPattern =
+  /(?:(?:\d+\s+)?\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)|(\d+))\s+([a-z][a-z ]*?)\s+damage/gi;
 const flatDamagePattern = /(?:^|plus\s+|,\s*)(\d+)(?!\s*\()\s+[^,.]*?damage/gi;
 const shillelaghBonusPattern = /\(([+-])\s*(\d+)\s+to hit with shillelagh\)/i;
 const shillelaghDamagePattern =
-  /or\s+\d+\s+\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)\s+[^,.]*?\s+with shillelagh/i;
+  /or\s+\d+\s+\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)\s+([a-z][a-z ]*?)\s+damage with shillelagh/i;
 
 function parseAttackBonus(text: string) {
   const match = attackBonusPattern.exec(text);
@@ -64,11 +83,30 @@ function normalizeDiceFormula(formula: string) {
   return formula.replace(/\s+/g, " ").trim();
 }
 
+function normalizeDamageType(type: string) {
+  return type.replace(/\s+/g, " ").trim();
+}
+
 function parseDamage(text: string) {
   const clause = primaryHitClause(text);
+  const damageParts = Array.from(clause.matchAll(damagePartPattern), (match) => {
+    const formula = match[1] ? normalizeDiceFormula(match[1]) : undefined;
+    const flat = match[2] ? Number(match[2]) : undefined;
+    const type = match[3] ? normalizeDamageType(match[3]) : undefined;
+
+    return {
+      ...(formula ? { formula } : {}),
+      ...(flat !== undefined && Number.isFinite(flat) ? { flat } : {}),
+      ...(type ? { type } : {}),
+    } satisfies AttackDamagePart;
+  }).filter((part) => part.formula || part.flat !== undefined);
+  const matchedFormulas = new Set(damageParts.map((part) => part.formula).filter(Boolean));
   const damageFormulas = Array.from(clause.matchAll(diceFormulaPattern), (match) =>
     normalizeDiceFormula(match[1] ?? ""),
   ).filter(Boolean);
+  const untypedFormulaParts = damageFormulas
+    .filter((formula) => !matchedFormulas.has(formula))
+    .map((formula) => ({ formula }) satisfies AttackDamagePart);
   const flatDamage = Array.from(clause.matchAll(flatDamagePattern), (match) =>
     Number(match[1]),
   ).filter((value) => Number.isFinite(value));
@@ -76,6 +114,7 @@ function parseDamage(text: string) {
   return {
     damageFormulas,
     flatDamage,
+    damageParts: [...damageParts, ...untypedFormulaParts],
   };
 }
 
@@ -97,11 +136,15 @@ function parseShillelaghAttack(
   }
 
   const sign = bonusMatch[1] === "-" ? -1 : 1;
+  const formula = normalizeDiceFormula(damageMatch[1] ?? "");
+  const type = normalizeDamageType(damageMatch[2] ?? "");
+
   return {
     id: `${sectionKind}-${sectionIndex}-${entryIndex}-${section.name}-shillelagh`,
     name: "Shillelagh",
     attackBonus: sign * Number(bonusMatch[2]),
-    damageFormulas: [normalizeDiceFormula(damageMatch[1] ?? "")].filter(Boolean),
+    damageParts: [{ formula, type }].filter((part) => part.formula),
+    damageFormulas: [formula].filter(Boolean),
     flatDamage: [],
   } satisfies AttackAction;
 }
@@ -117,12 +160,13 @@ function extractAttackActionsFromSections(
         return [];
       }
 
-      const { damageFormulas, flatDamage } = parseDamage(entry);
+      const { damageFormulas, flatDamage, damageParts } = parseDamage(entry);
 
       const baseAttack = {
         id: `${sectionKind}-${sectionIndex}-${entryIndex}-${section.name}`,
         name: section.name,
         attackBonus,
+        damageParts,
         damageFormulas,
         flatDamage,
       } satisfies AttackAction;
@@ -157,6 +201,31 @@ export function formatAttackRoutine(statBlock: Pick<StatBlock, "actions">) {
   return multiattack ? multiattack.entries.join(" ") : "1 attack";
 }
 
+export function extractFollowUpActions(statBlock: Pick<StatBlock, "actions">) {
+  return statBlock.actions.flatMap((section, sectionIndex) => {
+    if (section.name.toLowerCase() === "multiattack") {
+      return [];
+    }
+
+    const summary = section.entries.join(" ");
+    if (parseAttackBonus(summary) !== null) {
+      return [];
+    }
+
+    if (!/\bmakes?\s+(?:one\s+)?[a-z\s-]*attack\b/i.test(summary)) {
+      return [];
+    }
+
+    return [
+      {
+        id: `follow-up-${sectionIndex}-${section.name}`,
+        name: section.name,
+        summary,
+      } satisfies FollowUpAction,
+    ];
+  });
+}
+
 function rollDie(sides: number, random: () => number) {
   return Math.floor(random() * sides) + 1;
 }
@@ -185,15 +254,25 @@ export function rollAttackAction(
   random: () => number = Math.random,
 ) {
   const d20 = rollDie(20, random);
-  const rolledDamage = attack.damageFormulas
-    .map((formula) => rollDiceFormula(formula, random))
-    .reduce((sum, roll) => sum + roll.total, 0);
-  const flatDamage = attack.flatDamage.reduce((sum, value) => sum + value, 0);
+  const fallbackDamageParts: AttackDamagePart[] = [
+    ...attack.damageFormulas.map((formula) => ({ formula }) satisfies AttackDamagePart),
+    ...attack.flatDamage.map((flat) => ({ flat }) satisfies AttackDamagePart),
+  ];
+  const damageParts: AttackDamagePart[] =
+    attack.damageParts.length > 0
+      ? attack.damageParts
+      : fallbackDamageParts;
+  const damageRolls = damageParts.map((part) => ({
+    total: part.formula ? rollDiceFormula(part.formula, random).total : (part.flat ?? 0),
+    ...(part.type ? { type: part.type } : {}),
+  }));
+  const damageTotal = damageRolls.reduce((sum, roll) => sum + roll.total, 0);
 
   return {
     d20,
     attackTotal: d20 + attack.attackBonus,
-    damageTotal: rolledDamage + flatDamage,
+    damageTotal,
+    damageParts: damageRolls,
   } satisfies AttackRollResult;
 }
 

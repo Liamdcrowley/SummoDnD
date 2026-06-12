@@ -12,6 +12,7 @@ import {
 } from "@/lib/board-state";
 import {
   extractAttackActions,
+  extractFollowUpActions,
   formatAttackRoutine,
   rollAttackAction,
   type AttackAction,
@@ -73,23 +74,6 @@ function summonableCrValue(entry: CatalogEntry<SummonableData>) {
   return entry.data.statBlock.challengeRatingValue ?? parseCrValue(entry.data.statBlock.challengeRating);
 }
 
-function DetailRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
-      <p className="text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
-        {label}
-      </p>
-      <p className="mt-2 text-sm leading-6 text-[var(--ink)]">{value}</p>
-    </div>
-  );
-}
-
 function CompactDetailItem({
   label,
   value,
@@ -105,6 +89,34 @@ function CompactDetailItem({
       <p className="mt-1 text-sm leading-6 text-[var(--ink)]">{value}</p>
     </div>
   );
+}
+
+function compactArmorClassSize(value: string) {
+  if (value.length > 18) {
+    return "text-[0.68rem]";
+  }
+
+  if (value.length > 12) {
+    return "text-xs";
+  }
+
+  if (value.length > 6) {
+    return "text-sm";
+  }
+
+  return "text-lg";
+}
+
+function formatDamageRoll(result: AttackRollResult) {
+  if (result.damageParts.length <= 1) {
+    return `Damage ${result.damageTotal}`;
+  }
+
+  const parts = result.damageParts
+    .map((part) => `${part.total}${part.type ? ` ${part.type}` : ""}`)
+    .join(" + ");
+
+  return `Damage ${parts} (${result.damageTotal})`;
 }
 
 function FilterField({
@@ -348,7 +360,9 @@ function BoardEntryCard({
   const [hitPoints, setHitPoints] = useState(String(entry.currentHitPoints));
   const [attackResults, setAttackResults] = useState<Record<string, AttackRollResult>>({});
   const attacks = extractAttackActions(entry.statBlockSnapshot);
+  const followUpActions = extractFollowUpActions(entry.statBlockSnapshot);
   const attackRoutine = formatAttackRoutine(entry.statBlockSnapshot);
+  const armorClassSize = compactArmorClassSize(entry.statBlockSnapshot.armorClass);
 
   function handleRollAttack(attack: AttackAction) {
     setAttackResults((current) => ({
@@ -381,32 +395,39 @@ function BoardEntryCard({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(7rem,auto)_minmax(8rem,auto)_1fr] sm:items-stretch">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(15rem,auto)_1fr] lg:items-stretch">
         <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
-          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
-            AC
-          </p>
-          <p className="mt-2 text-2xl font-semibold text-[var(--ink)]">
-            {entry.statBlockSnapshot.armorClass}
-          </p>
-        </div>
+          <div className="grid grid-cols-[minmax(4rem,0.85fr)_minmax(8rem,1fr)] gap-3">
+            <div className="min-w-0 border-r border-[var(--line)] pr-3">
+              <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">
+                AC
+              </p>
+              <p
+                title={entry.statBlockSnapshot.armorClass}
+                className={`mt-2 break-words font-semibold leading-tight text-[var(--ink)] ${armorClassSize}`}
+              >
+                {entry.statBlockSnapshot.armorClass}
+              </p>
+            </div>
 
-        <div className="rounded-2xl border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-4 py-3">
-          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
-            HP
-          </p>
-          <div className="mt-2 flex items-end gap-2">
-            <input
-              inputMode="numeric"
-              value={hitPoints}
-              onChange={(event) => setHitPoints(event.target.value)}
-              onBlur={() => {
-                const nextValue = Number(hitPoints);
-                onCommitHp(entry, Number.isFinite(nextValue) ? nextValue : entry.currentHitPoints);
-              }}
-              className="w-20 bg-transparent text-2xl font-semibold text-[var(--ink)] outline-none"
-            />
-            <span className="pb-1 text-sm text-[var(--muted)]">/ {entry.maxHitPoints}</span>
+            <div className="min-w-0">
+              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+                HP
+              </p>
+              <div className="mt-2 flex items-end gap-2">
+                <input
+                  inputMode="numeric"
+                  value={hitPoints}
+                  onChange={(event) => setHitPoints(event.target.value)}
+                  onBlur={() => {
+                    const nextValue = Number(hitPoints);
+                    onCommitHp(entry, Number.isFinite(nextValue) ? nextValue : entry.currentHitPoints);
+                  }}
+                  className="w-20 bg-transparent text-2xl font-semibold text-[var(--ink)] outline-none"
+                />
+                <span className="pb-1 text-sm text-[var(--muted)]">/ {entry.maxHitPoints}</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -415,6 +436,16 @@ function BoardEntryCard({
             Attacks
           </p>
           <p className="mt-2 text-sm leading-6 text-[var(--ink)]">{attackRoutine}</p>
+          {followUpActions.length > 0 ? (
+            <div className="mt-2 space-y-1">
+              {followUpActions.map((action) => (
+                <p key={action.id} className="text-xs leading-5 text-[var(--muted)]">
+                  <span className="font-semibold text-[var(--ink)]">{action.name}:</span>{" "}
+                  {action.summary}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -432,7 +463,7 @@ function BoardEntryCard({
               {attack.name}
               {result ? (
                 <span className="ml-2 text-[var(--muted)]">
-                  Hit {result.attackTotal} / Damage {result.damageTotal}
+                  Hit {result.attackTotal} / {formatDamageRoll(result)}
                 </span>
               ) : null}
             </button>
@@ -453,6 +484,7 @@ function BoardEntryCard({
 export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
   const [activeTab, setActiveTab] = useState<TabKey>("library");
   const [query, setQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const [sourceFilter, setSourceFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -656,65 +688,76 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
         {activeTab === "library" ? (
           <section className="space-y-4">
             <div className="rounded-[2rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_25px_80px_rgba(62,44,26,0.12)]">
-              <label className="block rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
-                <span className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
-                  Search
-                </span>
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search by creature or sourcebook"
-                  className="mt-2 block w-full bg-transparent text-base text-[var(--ink)] outline-none"
-                />
-              </label>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <FilterField
-                  label="Summon source"
-                  value={sourceFilter}
-                  onChange={setSourceFilter}
-                  options={[
-                    { label: "All sources", value: "all" },
-                    ...summonSourceOptions.map((option) => ({ label: option, value: option })),
-                  ]}
-                />
-                <FilterField
-                  label="Creature type"
-                  value={typeFilter}
-                  onChange={setTypeFilter}
-                  options={[
-                    { label: "All types", value: "all" },
-                    ...typeOptions.map((option) => ({ label: option, value: option })),
-                  ]}
-                />
-                <FilterField
-                  label="Size"
-                  value={sizeFilter}
-                  onChange={setSizeFilter}
-                  options={[
-                    { label: "All sizes", value: "all" },
-                    ...sizeOptions.map((option) => ({ label: option, value: option })),
-                  ]}
-                />
-                <FilterField
-                  label="Max CR"
-                  value={crFilter}
-                  onChange={setCrFilter}
-                  options={[
-                    { label: "Any CR", value: "all" },
-                    ...crOptions.map((option) => ({ label: option, value: option })),
-                  ]}
-                />
-                <FilterField
-                  label="Sourcebook"
-                  value={sourcebookFilter}
-                  onChange={setSourcebookFilter}
-                  options={[
-                    { label: "All books", value: "all" },
-                    ...sourcebookOptions.map((option) => ({ label: option, value: option })),
-                  ]}
-                />
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                <label className="block rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
+                  <span className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+                    Search
+                  </span>
+                  <input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search summons"
+                    className="mt-2 block w-full bg-transparent text-base text-[var(--ink)] outline-none"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((current) => !current)}
+                  className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-5 py-3 text-sm font-semibold text-[var(--ink)]"
+                >
+                  {filtersOpen ? "Hide filters" : "Filters"}
+                </button>
               </div>
+
+              {filtersOpen ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <FilterField
+                    label="Summon source"
+                    value={sourceFilter}
+                    onChange={setSourceFilter}
+                    options={[
+                      { label: "All sources", value: "all" },
+                      ...summonSourceOptions.map((option) => ({ label: option, value: option })),
+                    ]}
+                  />
+                  <FilterField
+                    label="Creature type"
+                    value={typeFilter}
+                    onChange={setTypeFilter}
+                    options={[
+                      { label: "All types", value: "all" },
+                      ...typeOptions.map((option) => ({ label: option, value: option })),
+                    ]}
+                  />
+                  <FilterField
+                    label="Size"
+                    value={sizeFilter}
+                    onChange={setSizeFilter}
+                    options={[
+                      { label: "All sizes", value: "all" },
+                      ...sizeOptions.map((option) => ({ label: option, value: option })),
+                    ]}
+                  />
+                  <FilterField
+                    label="Max CR"
+                    value={crFilter}
+                    onChange={setCrFilter}
+                    options={[
+                      { label: "Any CR", value: "all" },
+                      ...crOptions.map((option) => ({ label: option, value: option })),
+                    ]}
+                  />
+                  <FilterField
+                    label="Sourcebook"
+                    value={sourcebookFilter}
+                    onChange={setSourcebookFilter}
+                    options={[
+                      { label: "All books", value: "all" },
+                      ...sourcebookOptions.map((option) => ({ label: option, value: option })),
+                    ]}
+                  />
+                </div>
+              ) : null}
             </div>
 
             <div className="grid gap-4">
@@ -730,13 +773,9 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
                   >
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
-                          {entry.source.sourcebook}
-                        </p>
-                        <h2 className="mt-2 font-display text-3xl text-[var(--ink)]">{entry.name}</h2>
-                        <p className="mt-3 text-sm leading-7 text-[var(--muted)]">
-                          {entry.data.statBlock.size} {entry.data.statBlock.type} /{" "}
-                          {formatCr(entry.data.statBlock.challengeRating)} / {entry.data.statBlock.alignment}
+                        <h2 className="font-display text-3xl text-[var(--ink)]">{entry.name}</h2>
+                        <p className="mt-2 text-sm font-semibold text-[var(--muted)]">
+                          {formatCr(entry.data.statBlock.challengeRating)}
                         </p>
                       </div>
 
@@ -764,24 +803,6 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
                           Add to board
                         </button>
                       </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {entry.data.summonSources.map((sourceKey) => (
-                        <span
-                          key={`${entry.slug}-${sourceKey}`}
-                          className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-1 text-xs text-[var(--ink)]"
-                        >
-                          {sourceKey}
-                        </span>
-                      ))}
-                    </div>
-
-                    <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      <DetailRow label="Armor Class" value={entry.data.statBlock.armorClass} />
-                      <DetailRow label="Hit Points" value={entry.data.statBlock.hitPoints} />
-                      <DetailRow label="Speed" value={formatSpeed(entry.data.statBlock.speed)} />
-                      <DetailRow label="Senses" value={formatStatList(entry.data.statBlock.senses)} />
                     </div>
                   </article>
                 ))

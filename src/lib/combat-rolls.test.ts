@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { extractAttackActions, formatAttackRoutine, rollAttackAction } from "@/lib/combat-rolls";
+import {
+  extractAttackActions,
+  extractFollowUpActions,
+  formatAttackRoutine,
+  rollAttackAction,
+} from "@/lib/combat-rolls";
 import type { StatBlock } from "@/lib/types";
 
 function buildStatBlock(actions: StatBlock["actions"]): StatBlock {
@@ -56,6 +61,10 @@ describe("combat rolls", () => {
         id: "action-0-0-Bite",
         name: "Bite",
         attackBonus: 4,
+        damageParts: [
+          { formula: "2d4 + 2", type: "piercing" },
+          { formula: "1d6", type: "fire" },
+        ],
         damageFormulas: ["2d4 + 2", "1d6"],
         flatDamage: [],
       },
@@ -76,6 +85,25 @@ describe("combat rolls", () => {
 
     expect(attacks[0]?.flatDamage).toEqual([1]);
     expect(attacks[0]?.damageFormulas).toEqual([]);
+    expect(attacks[0]?.damageParts).toEqual([{ flat: 1, type: "piercing" }]);
+  });
+
+  it("keeps direct extra damage parts from the hit", () => {
+    const attacks = extractAttackActions(
+      buildStatBlock([
+        {
+          name: "Bite",
+          entries: [
+            "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 7 (1d10 + 2) piercing damage plus 5 (1d10) poison damage, and the target is grappled (escape DC 13).",
+          ],
+        },
+      ]),
+    );
+
+    expect(attacks[0]?.damageParts).toEqual([
+      { formula: "1d10 + 2", type: "piercing" },
+      { formula: "1d10", type: "poison" },
+    ]);
   });
 
   it("adds a separate shillelagh attack for dryad-style club entries", () => {
@@ -96,6 +124,7 @@ describe("combat rolls", () => {
       id: "action-0-0-Club-shillelagh",
       name: "Shillelagh",
       attackBonus: 6,
+      damageParts: [{ formula: "1d8 + 4", type: "bludgeoning" }],
       damageFormulas: ["1d8 + 4"],
       flatDamage: [],
     });
@@ -121,6 +150,11 @@ describe("combat rolls", () => {
         id: "bite",
         name: "Bite",
         attackBonus: 4,
+        damageParts: [
+          { formula: "2d4 + 2", type: "piercing" },
+          { formula: "1d6", type: "fire" },
+          { flat: 1 },
+        ],
         damageFormulas: ["2d4 + 2", "1d6"],
         flatDamage: [1],
       },
@@ -131,6 +165,37 @@ describe("combat rolls", () => {
       d20: 1,
       attackTotal: 5,
       damageTotal: 6,
+      damageParts: [
+        { total: 4, type: "piercing" },
+        { total: 1, type: "fire" },
+        { total: 1 },
+      ],
     });
+  });
+
+  it("finds follow-up attack actions such as swallow", () => {
+    const statBlock = buildStatBlock([
+      {
+        name: "Bite",
+        entries: [
+          "Melee Weapon Attack: +4 to hit, reach 5 ft., one target. Hit: 7 (1d10 + 2) piercing damage.",
+        ],
+      },
+      {
+        name: "Swallow",
+        entries: [
+          "The toad makes one bite attack against a Medium or smaller target it is grappling. If the attack hits, the target is swallowed.",
+        ],
+      },
+    ]);
+
+    expect(extractFollowUpActions(statBlock)).toEqual([
+      {
+        id: "follow-up-1-Swallow",
+        name: "Swallow",
+        summary:
+          "The toad makes one bite attack against a Medium or smaller target it is grappling. If the attack hits, the target is swallowed.",
+      },
+    ]);
   });
 });
