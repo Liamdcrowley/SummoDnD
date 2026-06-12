@@ -10,6 +10,12 @@ import {
   subscribeBoardEntries,
   updateBoardEntry,
 } from "@/lib/board-state";
+import {
+  extractAttackActions,
+  rollAttackAction,
+  type AttackAction,
+  type AttackRollResult,
+} from "@/lib/combat-rolls";
 import type { BoardEntry, CatalogEntry, StatBlock, StatBlockSection, SummonableData } from "@/lib/types";
 
 type SummonTrackerProps = {
@@ -24,6 +30,7 @@ type StatBlockModalState =
       subtitle: string;
       statBlock: StatBlock;
       sourceTags: string[];
+      showSourceAttribution: boolean;
     }
   | null;
 
@@ -66,6 +73,10 @@ function parseCrValue(label: string) {
   return Number.isFinite(value) ? value : null;
 }
 
+function summonableCrValue(entry: CatalogEntry<SummonableData>) {
+  return entry.data.statBlock.challengeRatingValue ?? parseCrValue(entry.data.statBlock.challengeRating);
+}
+
 function DetailRow({
   label,
   value,
@@ -79,6 +90,23 @@ function DetailRow({
         {label}
       </p>
       <p className="mt-2 text-sm leading-6 text-[var(--ink)]">{value}</p>
+    </div>
+  );
+}
+
+function CompactDetailItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[0.62rem] font-semibold uppercase tracking-[0.22em] text-[var(--muted)]">
+        {label}
+      </p>
+      <p className="mt-1 text-sm leading-6 text-[var(--ink)]">{value}</p>
     </div>
   );
 }
@@ -176,12 +204,14 @@ function StatBlockSheet({
   subtitle,
   statBlock,
   sourceTags,
+  showSourceAttribution,
   onClose,
 }: {
   title: string;
   subtitle: string;
   statBlock: StatBlock;
   sourceTags: string[];
+  showSourceAttribution: boolean;
   onClose: () => void;
 }) {
   return (
@@ -193,16 +223,18 @@ function StatBlockSheet({
               {subtitle}
             </p>
             <h3 className="mt-2 font-display text-3xl text-[var(--ink)]">{title}</h3>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {sourceTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-1 text-xs text-[var(--ink)]"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
+            {sourceTags.length > 0 ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {sourceTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-1 text-xs text-[var(--ink)]"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
@@ -215,35 +247,40 @@ function StatBlockSheet({
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           <div className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <DetailRow label="Size" value={statBlock.size} />
-              <DetailRow label="Type" value={statBlock.type} />
-              <DetailRow label="Alignment" value={statBlock.alignment} />
-              <DetailRow label="Armor Class" value={statBlock.armorClass} />
-              <DetailRow label="Hit Points" value={statBlock.hitPoints} />
-              <DetailRow label="Speed" value={formatSpeed(statBlock.speed)} />
-              <DetailRow label="Saving Throws" value={formatStatList(statBlock.savingThrows)} />
-              <DetailRow label="Skills" value={formatStatList(statBlock.skills)} />
-              <DetailRow label="Challenge" value={formatCr(statBlock.challengeRating)} />
-              <DetailRow label="Senses" value={formatStatList(statBlock.senses)} />
-              <DetailRow label="Languages" value={formatStatList(statBlock.languages)} />
-              <DetailRow
-                label="Damage Resistances"
-                value={formatStatList(statBlock.damageResistances)}
-              />
-              <DetailRow
-                label="Damage Immunities"
-                value={formatStatList(statBlock.damageImmunities)}
-              />
-              <DetailRow
-                label="Damage Vulnerabilities"
-                value={formatStatList(statBlock.damageVulnerabilities)}
-              />
-              <DetailRow
-                label="Condition Immunities"
-                value={formatStatList(statBlock.conditionImmunities)}
-              />
-            </div>
+            <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
+              <div className="grid gap-x-5 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+                <CompactDetailItem label="Size" value={statBlock.size} />
+                <CompactDetailItem label="Type" value={statBlock.type} />
+                <CompactDetailItem label="Alignment" value={statBlock.alignment} />
+                <CompactDetailItem label="Armor Class" value={statBlock.armorClass} />
+                <CompactDetailItem label="Hit Points" value={statBlock.hitPoints} />
+                <CompactDetailItem label="Speed" value={formatSpeed(statBlock.speed)} />
+                <CompactDetailItem
+                  label="Saving Throws"
+                  value={formatStatList(statBlock.savingThrows)}
+                />
+                <CompactDetailItem label="Skills" value={formatStatList(statBlock.skills)} />
+                <CompactDetailItem label="Challenge" value={formatCr(statBlock.challengeRating)} />
+                <CompactDetailItem label="Senses" value={formatStatList(statBlock.senses)} />
+                <CompactDetailItem label="Languages" value={formatStatList(statBlock.languages)} />
+                <CompactDetailItem
+                  label="Damage Resistances"
+                  value={formatStatList(statBlock.damageResistances)}
+                />
+                <CompactDetailItem
+                  label="Damage Immunities"
+                  value={formatStatList(statBlock.damageImmunities)}
+                />
+                <CompactDetailItem
+                  label="Damage Vulnerabilities"
+                  value={formatStatList(statBlock.damageVulnerabilities)}
+                />
+                <CompactDetailItem
+                  label="Condition Immunities"
+                  value={formatStatList(statBlock.conditionImmunities)}
+                />
+              </div>
+            </section>
 
             <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
               <h4 className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
@@ -273,22 +310,24 @@ function StatBlockSheet({
             <SectionBlock title="Bonus Actions" sections={statBlock.bonusActions} />
             <SectionBlock title="Reactions" sections={statBlock.reactions} />
 
-            <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
-              <h4 className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
-                Source
-              </h4>
-              <p className="mt-3 text-sm leading-7 text-[var(--ink)]">
-                {statBlock.sourceAttribution.sourcebook}
-              </p>
-              <a
-                href={statBlock.sourceAttribution.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-block text-sm font-semibold text-[var(--moss-dark)] underline-offset-4 hover:underline"
-              >
-                Open source
-              </a>
-            </section>
+            {showSourceAttribution ? (
+              <section className="rounded-[1.5rem] border border-[var(--line)] bg-[var(--paper)] p-4">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
+                  Source
+                </h4>
+                <p className="mt-3 text-sm leading-7 text-[var(--ink)]">
+                  {statBlock.sourceAttribution.sourcebook}
+                </p>
+                <a
+                  href={statBlock.sourceAttribution.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-block text-sm font-semibold text-[var(--moss-dark)] underline-offset-4 hover:underline"
+                >
+                  Open source
+                </a>
+              </section>
+            ) : null}
           </div>
         </div>
       </div>
@@ -299,51 +338,31 @@ function StatBlockSheet({
 function BoardGroupCard({
   group,
   onOpenStats,
-  onAdjustHp,
   onCommitHp,
   onCommitNickname,
   onRemove,
 }: {
   group: BoardGroup;
   onOpenStats: (entry: BoardEntry) => void;
-  onAdjustHp: (entry: BoardEntry, delta: number) => void;
   onCommitHp: (entry: BoardEntry, nextValue: number) => void;
   onCommitNickname: (entry: BoardEntry, nextValue: string) => void;
   onRemove: (entry: BoardEntry) => void;
 }) {
-  const leadEntry = group.entries[0];
-
   return (
     <article className="rounded-[1.75rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_20px_50px_rgba(62,44,26,0.1)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--muted)]">
-            {leadEntry?.statBlockSnapshot.sourceAttribution.sourcebook}
-          </p>
-          <h3 className="mt-2 font-display text-2xl text-[var(--ink)]">{group.name}</h3>
-          <p className="mt-2 text-sm text-[var(--muted)]">{group.count} on board</p>
+          <h3 className="font-display text-2xl text-[var(--ink)]">{group.name}</h3>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {(leadEntry?.summonable?.data.summonSources ?? []).map((sourceKey) => (
-          <span
-            key={`${group.key}-${sourceKey}`}
-            className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-1 text-xs text-[var(--ink)]"
-          >
-            {sourceKey}
-          </span>
-        ))}
-      </div>
-
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 space-y-3">
         {group.entries.map((entry, index) => (
           <GroupedBoardEntryRow
             key={`${entry.id}-${entry.updatedAt}`}
             entry={entry}
             index={index}
             onOpenStats={onOpenStats}
-            onAdjustHp={onAdjustHp}
             onCommitHp={onCommitHp}
             onCommitNickname={onCommitNickname}
             onRemove={onRemove}
@@ -358,7 +377,6 @@ function GroupedBoardEntryRow({
   entry,
   index,
   onOpenStats,
-  onAdjustHp,
   onCommitHp,
   onCommitNickname,
   onRemove,
@@ -366,13 +384,21 @@ function GroupedBoardEntryRow({
   entry: BoardEntry;
   index: number;
   onOpenStats: (entry: BoardEntry) => void;
-  onAdjustHp: (entry: BoardEntry, delta: number) => void;
   onCommitHp: (entry: BoardEntry, nextValue: number) => void;
   onCommitNickname: (entry: BoardEntry, nextValue: string) => void;
   onRemove: (entry: BoardEntry) => void;
 }) {
   const [nickname, setNickname] = useState(entry.nickname);
   const [hitPoints, setHitPoints] = useState(String(entry.currentHitPoints));
+  const [attackResults, setAttackResults] = useState<Record<string, AttackRollResult>>({});
+  const attacks = extractAttackActions(entry.statBlockSnapshot);
+
+  function handleRollAttack(attack: AttackAction) {
+    setAttackResults((current) => ({
+      ...current,
+      [attack.id]: rollAttackAction(attack),
+    }));
+  }
 
   return (
     <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-4">
@@ -400,7 +426,7 @@ function GroupedBoardEntryRow({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
+      <div className="mt-4 grid gap-3 sm:grid-cols-[auto_1fr] sm:items-start">
         <div className="rounded-2xl border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-4 py-3">
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
             HP
@@ -421,16 +447,25 @@ function GroupedBoardEntryRow({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {[-5, -1, 1, 5].map((delta) => (
-            <button
-              key={`${entry.id}-${delta}`}
-              type="button"
-              onClick={() => onAdjustHp(entry, delta)}
-              className="rounded-full border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
-            >
-              {delta > 0 ? `+${delta}` : delta}
-            </button>
-          ))}
+          {attacks.map((attack) => {
+            const result = attackResults[attack.id];
+
+            return (
+              <button
+                key={attack.id}
+                type="button"
+                onClick={() => handleRollAttack(attack)}
+                className="rounded-full border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
+              >
+                {attack.name}
+                {result ? (
+                  <span className="ml-2 text-[var(--muted)]">
+                    Hit {result.attackTotal} / Damage {result.damageTotal}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
           <button
             type="button"
             onClick={() => onOpenStats(entry)}
@@ -488,46 +523,53 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
   });
   const sourcebookOptions = Array.from(new Set(initialSummonables.map((entry) => entry.source.sourcebook))).sort();
 
-  const filteredSummonables = initialSummonables.filter((entry) => {
-    const normalizedQuery = deferredQuery.trim().toLowerCase();
-    if (
-      normalizedQuery &&
-      ![entry.name, entry.searchText, entry.source.sourcebook]
-        .join(" ")
-        .toLowerCase()
-        .includes(normalizedQuery)
-    ) {
-      return false;
-    }
-
-    if (sourceFilter !== "all" && !entry.data.summonSources.includes(sourceFilter as never)) {
-      return false;
-    }
-
-    if (typeFilter !== "all" && entry.data.statBlock.type !== typeFilter) {
-      return false;
-    }
-
-    if (sizeFilter !== "all" && entry.data.statBlock.size !== sizeFilter) {
-      return false;
-    }
-
-    if (sourcebookFilter !== "all" && entry.source.sourcebook !== sourcebookFilter) {
-      return false;
-    }
-
-    if (crFilter !== "all") {
-      const maximumCr = parseCrValue(crFilter);
-      const creatureCr =
-        entry.data.statBlock.challengeRatingValue ?? parseCrValue(entry.data.statBlock.challengeRating);
-
-      if (maximumCr === null || creatureCr === null || creatureCr > maximumCr) {
+  const filteredSummonables = initialSummonables
+    .filter((entry) => {
+      const normalizedQuery = deferredQuery.trim().toLowerCase();
+      if (
+        normalizedQuery &&
+        ![entry.name, entry.searchText, entry.source.sourcebook]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedQuery)
+      ) {
         return false;
       }
-    }
 
-    return true;
-  });
+      if (sourceFilter !== "all" && !entry.data.summonSources.includes(sourceFilter as never)) {
+        return false;
+      }
+
+      if (typeFilter !== "all" && entry.data.statBlock.type !== typeFilter) {
+        return false;
+      }
+
+      if (sizeFilter !== "all" && entry.data.statBlock.size !== sizeFilter) {
+        return false;
+      }
+
+      if (sourcebookFilter !== "all" && entry.source.sourcebook !== sourcebookFilter) {
+        return false;
+      }
+
+      if (crFilter !== "all") {
+        const maximumCr = parseCrValue(crFilter);
+        const creatureCr = summonableCrValue(entry);
+
+        if (maximumCr === null || creatureCr === null || creatureCr > maximumCr) {
+          return false;
+        }
+      }
+
+      return true;
+    })
+    .sort((left, right) => {
+      const leftCr = summonableCrValue(left) ?? Number.NEGATIVE_INFINITY;
+      const rightCr = summonableCrValue(right) ?? Number.NEGATIVE_INFINITY;
+      const crDifference = rightCr - leftCr;
+
+      return crDifference || left.name.localeCompare(right.name);
+    });
 
   const boardGroups = Array.from(
     boardEntries.reduce((groups, entry) => {
@@ -560,14 +602,6 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : "Failed to add summon.");
     }
-  }
-
-  function handleAdjustHp(entry: BoardEntry, delta: number) {
-    replaceBoardEntries(
-      updateBoardEntry(boardEntries, entry.id, {
-        currentHitPoints: entry.currentHitPoints + delta,
-      }),
-    );
   }
 
   function handleCommitHp(entry: BoardEntry, nextValue: number) {
@@ -737,6 +771,7 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
                               subtitle: `${entry.data.statBlock.type} • ${formatCr(entry.data.statBlock.challengeRating)}`,
                               statBlock: entry.data.statBlock,
                               sourceTags: entry.data.summonSources,
+                              showSourceAttribution: true,
                             })
                           }
                           className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-4 py-2 text-sm font-semibold text-[var(--ink)]"
@@ -791,10 +826,10 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
                       title: boardEntry.nickname,
                       subtitle: boardEntry.statBlockSnapshot.name,
                       statBlock: boardEntry.statBlockSnapshot,
-                      sourceTags: boardEntry.summonable?.data.summonSources ?? [],
+                      sourceTags: [],
+                      showSourceAttribution: false,
                     })
                   }
-                  onAdjustHp={handleAdjustHp}
                   onCommitHp={handleCommitHp}
                   onCommitNickname={handleCommitNickname}
                   onRemove={handleRemove}
@@ -833,6 +868,7 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
           subtitle={modalState.subtitle}
           statBlock={modalState.statBlock}
           sourceTags={modalState.sourceTags}
+          showSourceAttribution={modalState.showSourceAttribution}
           onClose={() => setModalState(null)}
         />
       ) : null}
