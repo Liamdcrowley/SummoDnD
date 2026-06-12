@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { extractAttackActions, rollAttackAction } from "@/lib/combat-rolls";
+import { extractAttackActions, formatAttackRoutine, rollAttackAction } from "@/lib/combat-rolls";
 import type { StatBlock } from "@/lib/types";
 
 function buildStatBlock(actions: StatBlock["actions"]): StatBlock {
@@ -78,11 +78,11 @@ describe("combat rolls", () => {
     expect(attacks[0]?.damageFormulas).toEqual([]);
   });
 
-  it("uses the first listed damage option for alternate attacks", () => {
+  it("adds a separate shillelagh attack for dryad-style club entries", () => {
     const attacks = extractAttackActions(
       buildStatBlock([
         {
-          name: "Quarterstaff",
+          name: "Club",
           entries: [
             "Melee Weapon Attack: +2 to hit (+6 to hit with shillelagh), reach 5 ft., one target. Hit: 2 (1d4) bludgeoning damage, or 8 (1d8 + 4) bludgeoning damage with shillelagh.",
           ],
@@ -92,6 +92,27 @@ describe("combat rolls", () => {
 
     expect(attacks[0]?.attackBonus).toBe(2);
     expect(attacks[0]?.damageFormulas).toEqual(["1d4"]);
+    expect(attacks[1]).toEqual({
+      id: "action-0-0-Club-shillelagh",
+      name: "Shillelagh",
+      attackBonus: 6,
+      damageFormulas: ["1d8 + 4"],
+      flatDamage: [],
+    });
+  });
+
+  it("describes multiattack when present", () => {
+    const statBlock = buildStatBlock([
+      {
+        name: "Multiattack",
+        entries: ["The bear makes two attacks: one with its bite and one with its claws."],
+      },
+    ]);
+
+    expect(formatAttackRoutine(statBlock)).toBe(
+      "The bear makes two attacks: one with its bite and one with its claws.",
+    );
+    expect(formatAttackRoutine(buildStatBlock([]))).toBe("1 attack");
   });
 
   it("rolls the d20 and damage totals", () => {

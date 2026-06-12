@@ -12,6 +12,7 @@ import {
 } from "@/lib/board-state";
 import {
   extractAttackActions,
+  formatAttackRoutine,
   rollAttackAction,
   type AttackAction,
   type AttackRollResult,
@@ -24,6 +25,8 @@ type SummonTrackerProps = {
 
 type TabKey = "library" | "board";
 
+const STATS_MODAL_HISTORY_KEY = "summodndStatsModal";
+
 type StatBlockModalState =
   | {
       title: string;
@@ -33,13 +36,6 @@ type StatBlockModalState =
       showSourceAttribution: boolean;
     }
   | null;
-
-type BoardGroup = {
-  key: string;
-  name: string;
-  count: number;
-  entries: BoardEntry[];
-};
 
 function formatStatList(values: string[]) {
   return values.length > 0 ? values.join(", ") : "None";
@@ -335,54 +331,14 @@ function StatBlockSheet({
   );
 }
 
-function BoardGroupCard({
-  group,
-  onOpenStats,
-  onCommitHp,
-  onCommitNickname,
-  onRemove,
-}: {
-  group: BoardGroup;
-  onOpenStats: (entry: BoardEntry) => void;
-  onCommitHp: (entry: BoardEntry, nextValue: number) => void;
-  onCommitNickname: (entry: BoardEntry, nextValue: string) => void;
-  onRemove: (entry: BoardEntry) => void;
-}) {
-  return (
-    <article className="rounded-[1.75rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_20px_50px_rgba(62,44,26,0.1)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="font-display text-2xl text-[var(--ink)]">{group.name}</h3>
-        </div>
-      </div>
-
-      <div className="mt-3 space-y-3">
-        {group.entries.map((entry, index) => (
-          <GroupedBoardEntryRow
-            key={`${entry.id}-${entry.updatedAt}`}
-            entry={entry}
-            index={index}
-            onOpenStats={onOpenStats}
-            onCommitHp={onCommitHp}
-            onCommitNickname={onCommitNickname}
-            onRemove={onRemove}
-          />
-        ))}
-      </div>
-    </article>
-  );
-}
-
-function GroupedBoardEntryRow({
+function BoardEntryCard({
   entry,
-  index,
   onOpenStats,
   onCommitHp,
   onCommitNickname,
   onRemove,
 }: {
   entry: BoardEntry;
-  index: number;
   onOpenStats: (entry: BoardEntry) => void;
   onCommitHp: (entry: BoardEntry, nextValue: number) => void;
   onCommitNickname: (entry: BoardEntry, nextValue: string) => void;
@@ -392,6 +348,7 @@ function GroupedBoardEntryRow({
   const [hitPoints, setHitPoints] = useState(String(entry.currentHitPoints));
   const [attackResults, setAttackResults] = useState<Record<string, AttackRollResult>>({});
   const attacks = extractAttackActions(entry.statBlockSnapshot);
+  const attackRoutine = formatAttackRoutine(entry.statBlockSnapshot);
 
   function handleRollAttack(attack: AttackAction) {
     setAttackResults((current) => ({
@@ -401,21 +358,19 @@ function GroupedBoardEntryRow({
   }
 
   return (
-    <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] p-4">
+    <article className="rounded-[1.75rem] border border-[var(--line)] bg-[var(--card)] p-4 shadow-[0_20px_50px_rgba(62,44,26,0.1)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
-            Copy {index + 1}
-          </p>
-          <label className="mt-2 block">
+          <label className="block">
             <span className="sr-only">Nickname</span>
             <input
               value={nickname}
               onChange={(event) => setNickname(event.target.value)}
               onBlur={() => onCommitNickname(entry, nickname)}
-              className="block w-full bg-transparent text-base font-semibold text-[var(--ink)] outline-none"
+              className="block w-full bg-transparent font-display text-2xl text-[var(--ink)] outline-none"
             />
           </label>
+          <p className="mt-1 text-sm text-[var(--muted)]">{entry.statBlockSnapshot.name}</p>
         </div>
         <button
           type="button"
@@ -426,7 +381,16 @@ function GroupedBoardEntryRow({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-[auto_1fr] sm:items-start">
+      <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(7rem,auto)_minmax(8rem,auto)_1fr] sm:items-stretch">
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+            AC
+          </p>
+          <p className="mt-2 text-2xl font-semibold text-[var(--ink)]">
+            {entry.statBlockSnapshot.armorClass}
+          </p>
+        </div>
+
         <div className="rounded-2xl border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-4 py-3">
           <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
             HP
@@ -446,36 +410,43 @@ function GroupedBoardEntryRow({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {attacks.map((attack) => {
-            const result = attackResults[attack.id];
-
-            return (
-              <button
-                key={attack.id}
-                type="button"
-                onClick={() => handleRollAttack(attack)}
-                className="rounded-full border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
-              >
-                {attack.name}
-                {result ? (
-                  <span className="ml-2 text-[var(--muted)]">
-                    Hit {result.attackTotal} / Damage {result.damageTotal}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={() => onOpenStats(entry)}
-            className="rounded-full border border-[var(--moss)] bg-[var(--moss)] px-4 py-2 text-sm font-semibold text-[var(--paper)]"
-          >
-            View stats
-          </button>
+        <div className="rounded-2xl border border-[var(--line)] bg-[var(--paper)] px-4 py-3">
+          <p className="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-[var(--muted)]">
+            Attacks
+          </p>
+          <p className="mt-2 text-sm leading-6 text-[var(--ink)]">{attackRoutine}</p>
         </div>
       </div>
-    </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {attacks.map((attack) => {
+          const result = attackResults[attack.id];
+
+          return (
+            <button
+              key={attack.id}
+              type="button"
+              onClick={() => handleRollAttack(attack)}
+              className="rounded-full border border-[var(--line)] bg-[rgba(255,255,255,0.45)] px-3 py-2 text-sm font-semibold text-[var(--ink)]"
+            >
+              {attack.name}
+              {result ? (
+                <span className="ml-2 text-[var(--muted)]">
+                  Hit {result.attackTotal} / Damage {result.damageTotal}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => onOpenStats(entry)}
+          className="rounded-full border border-[var(--moss)] bg-[var(--moss)] px-4 py-2 text-sm font-semibold text-[var(--paper)]"
+        >
+          View stats
+        </button>
+      </div>
+    </article>
   );
 }
 
@@ -508,6 +479,15 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
     const timeout = window.setTimeout(() => setFeedback(null), 2400);
     return () => window.clearTimeout(timeout);
   }, [feedback]);
+
+  useEffect(() => {
+    function handlePopState() {
+      setModalState(null);
+    }
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const summonSourceOptions = Array.from(
     new Set(initialSummonables.flatMap((entry) => entry.data.summonSources)),
@@ -571,28 +551,37 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
       return crDifference || left.name.localeCompare(right.name);
     });
 
-  const boardGroups = Array.from(
-    boardEntries.reduce((groups, entry) => {
-      const key = entry.summonableSlug || entry.statBlockSnapshot.name;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.entries.push(entry);
-        existing.count += 1;
-        return groups;
-      }
+  function openStatBlock(nextModalState: NonNullable<StatBlockModalState>) {
+    const currentHistoryState = window.history.state;
+    const historyState =
+      currentHistoryState && typeof currentHistoryState === "object"
+        ? { ...currentHistoryState }
+        : {};
 
-      groups.set(key, {
-        key,
-        name: entry.summonable?.name ?? entry.statBlockSnapshot.name,
-        count: 1,
-        entries: [entry],
-      });
+    window.history.pushState(
+      {
+        ...historyState,
+        [STATS_MODAL_HISTORY_KEY]: true,
+      },
+      "",
+      window.location.href,
+    );
+    setModalState(nextModalState);
+  }
 
-      return groups;
-    }, new Map<string, BoardGroup>()),
-  )
-    .map(([, group]) => group)
-    .sort((left, right) => left.name.localeCompare(right.name));
+  function closeStatBlock() {
+    const currentHistoryState = window.history.state;
+    if (
+      currentHistoryState &&
+      typeof currentHistoryState === "object" &&
+      currentHistoryState[STATS_MODAL_HISTORY_KEY]
+    ) {
+      window.history.back();
+      return;
+    }
+
+    setModalState(null);
+  }
 
   function handleAddSummonable(entry: CatalogEntry<SummonableData>) {
     try {
@@ -637,20 +626,9 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
             </p>
             <p className="text-sm text-[var(--muted)]">{boardEntries.length} total on board</p>
           </div>
-          {boardGroups.length === 0 ? (
+          {boardEntries.length === 0 ? (
             <p className="mt-3 text-sm leading-7 text-[var(--muted)]">No creatures on the board yet.</p>
-          ) : (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {boardGroups.map((group) => (
-                <span
-                  key={group.key}
-                  className="rounded-full border border-[var(--line)] bg-[var(--paper)] px-3 py-2 text-sm text-[var(--ink)]"
-                >
-                  {group.name} x{group.count}
-                </span>
-              ))}
-            </div>
-          )}
+          ) : null}
         </section>
 
         <div className="rounded-[2rem] border border-[var(--line)] bg-[var(--card)] p-3 shadow-[0_25px_80px_rgba(62,44,26,0.12)]">
@@ -766,7 +744,7 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
                         <button
                           type="button"
                           onClick={() =>
-                            setModalState({
+                            openStatBlock({
                               title: entry.name,
                               subtitle: `${entry.data.statBlock.type} • ${formatCr(entry.data.statBlock.challengeRating)}`,
                               statBlock: entry.data.statBlock,
@@ -817,12 +795,12 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
                 Your board is empty. Add creatures from the Library tab to start tracking summons.
               </div>
             ) : (
-              boardGroups.map((group) => (
-                <BoardGroupCard
-                  key={group.key}
-                  group={group}
+              boardEntries.map((boardEntry) => (
+                <BoardEntryCard
+                  key={`${boardEntry.id}-${boardEntry.updatedAt}`}
+                  entry={boardEntry}
                   onOpenStats={(boardEntry) =>
-                    setModalState({
+                    openStatBlock({
                       title: boardEntry.nickname,
                       subtitle: boardEntry.statBlockSnapshot.name,
                       statBlock: boardEntry.statBlockSnapshot,
@@ -869,7 +847,7 @@ export function SummonTracker({ initialSummonables }: SummonTrackerProps) {
           statBlock={modalState.statBlock}
           sourceTags={modalState.sourceTags}
           showSourceAttribution={modalState.showSourceAttribution}
-          onClose={() => setModalState(null)}
+          onClose={closeStatBlock}
         />
       ) : null}
     </>

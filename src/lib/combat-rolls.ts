@@ -21,6 +21,9 @@ type RollDetail = {
 const attackBonusPattern = /([+-])\s*(\d+)\s+to hit/i;
 const diceFormulaPattern = /\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)/gi;
 const flatDamagePattern = /(?:^|plus\s+|,\s*)(\d+)(?!\s*\()\s+[^,.]*?damage/gi;
+const shillelaghBonusPattern = /\(([+-])\s*(\d+)\s+to hit with shillelagh\)/i;
+const shillelaghDamagePattern =
+  /or\s+\d+\s+\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)\s+[^,.]*?\s+with shillelagh/i;
 
 function parseAttackBonus(text: string) {
   const match = attackBonusPattern.exec(text);
@@ -76,6 +79,33 @@ function parseDamage(text: string) {
   };
 }
 
+function parseShillelaghAttack(
+  section: StatBlockSection,
+  sectionKind: string,
+  sectionIndex: number,
+  entry: string,
+  entryIndex: number,
+) {
+  if (!/shillelagh/i.test(entry)) {
+    return null;
+  }
+
+  const bonusMatch = shillelaghBonusPattern.exec(entry);
+  const damageMatch = shillelaghDamagePattern.exec(entry);
+  if (!bonusMatch || !damageMatch) {
+    return null;
+  }
+
+  const sign = bonusMatch[1] === "-" ? -1 : 1;
+  return {
+    id: `${sectionKind}-${sectionIndex}-${entryIndex}-${section.name}-shillelagh`,
+    name: "Shillelagh",
+    attackBonus: sign * Number(bonusMatch[2]),
+    damageFormulas: [normalizeDiceFormula(damageMatch[1] ?? "")].filter(Boolean),
+    flatDamage: [],
+  } satisfies AttackAction;
+}
+
 function extractAttackActionsFromSections(
   sections: StatBlockSection[],
   sectionKind: string,
@@ -89,15 +119,22 @@ function extractAttackActionsFromSections(
 
       const { damageFormulas, flatDamage } = parseDamage(entry);
 
-      return [
-        {
-          id: `${sectionKind}-${sectionIndex}-${entryIndex}-${section.name}`,
-          name: section.name,
-          attackBonus,
-          damageFormulas,
-          flatDamage,
-        } satisfies AttackAction,
-      ];
+      const baseAttack = {
+        id: `${sectionKind}-${sectionIndex}-${entryIndex}-${section.name}`,
+        name: section.name,
+        attackBonus,
+        damageFormulas,
+        flatDamage,
+      } satisfies AttackAction;
+      const shillelaghAttack = parseShillelaghAttack(
+        section,
+        sectionKind,
+        sectionIndex,
+        entry,
+        entryIndex,
+      );
+
+      return shillelaghAttack ? [baseAttack, shillelaghAttack] : [baseAttack];
     }),
   );
 }
@@ -110,6 +147,14 @@ export function extractAttackActions(
     ...extractAttackActionsFromSections(statBlock.bonusActions, "bonus-action"),
     ...extractAttackActionsFromSections(statBlock.reactions, "reaction"),
   ];
+}
+
+export function formatAttackRoutine(statBlock: Pick<StatBlock, "actions">) {
+  const multiattack = statBlock.actions.find(
+    (section) => section.name.toLowerCase() === "multiattack",
+  );
+
+  return multiattack ? multiattack.entries.join(" ") : "1 attack";
 }
 
 function rollDie(sides: number, random: () => number) {
